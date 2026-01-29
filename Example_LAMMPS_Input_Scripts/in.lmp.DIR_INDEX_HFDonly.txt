@@ -1,0 +1,290 @@
+# LAMMPS input script for reshape_et_HFD_calc of DIR_INDEX
+
+variable        NAME index DIR_INDEX_reshape_HFD
+log             ${NAME}.log
+variable        infile index restart_DIR_INDEX_reshape_HFD_cuboid.data
+
+
+
+units		        real
+atom_style	    full
+boundary        p p p
+pair_style	    lj/cut/coul/long 12.0
+bond_style      harmonic
+angle_style     harmonic
+dihedral_style charmm
+improper_style  cvff
+kspace_style    ewald 0.0001
+pair_modify     tail yes
+pair_modify     mix arithmetic
+
+
+variable   simulationTemp equal 298.15
+variable   simulationtimestep equal  1.0
+
+
+read_data	      ${infile}
+
+
+
+neighbor	      1.0 bin
+neigh_modify    delay 0 every 1 check yes
+
+thermo_style	custom step temp pe etotal press vol density
+thermo		    1000
+
+
+velocity	all scale ${simulationTemp}
+velocity    all zero linear units box
+velocity    all zero angular units box
+
+
+timestep	    ${simulationtimestep}
+
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> fix_ehex_init <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> thermal conductivity calculation <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# ehex layers
+
+fix             NVE_3 all nve
+
+variable       ulcubed equal vol/180
+variable       unit_length equal ${ulcubed}^0.33333333
+
+
+variable    kb index 0.0019872067        # kB in Kcal/mole/K
+#variable    unit_length equal lx/3
+variable    low_cold equal ${unit_length}*9
+variable    hi_cold  equal ${unit_length}*11
+variable    lo_hot2  equal ${unit_length}*19
+variable    hi_hot2  equal ${unit_length}*20
+
+region          hot1 block INF INF INF INF 0.0 ${unit_length} 
+region          cold1 block  INF INF INF INF ${low_cold} ${hi_cold}
+region          hot2 block  INF INF INF INF ${lo_hot2} ${hi_hot2}
+
+
+
+compute         Thot1 all temp/region hot1
+compute         Tcold1 all temp/region cold1
+compute         Thot2 all temp/region hot2
+
+
+
+variable    a     index          0.0035
+fix             hot1 all ehex 1  0.0035   region hot1
+fix             cold1 all ehex 1 -0.007   region cold1
+fix             hot2 all ehex 1  0.0035   region hot2
+variable    r     index          20000000
+variable    kappa_calc_run  equal     $r
+
+thermo_style    custom step temp press ke pe etotal density c_Thot1 c_Tcold1 c_Thot2
+thermo          1000
+
+
+compute		    ke all ke/atom
+variable	    temp atom c_ke/(1.5*${kb})
+
+#temp_profile.DIR_INDEX_reshape_HFD.0.0035
+
+compute         temp_layers all chunk/atom bin/1d z lower 0.05 units reduced
+fix		        temp_profile all ave/chunk 10 100 1000 temp_layers v_temp file temp_profile.${NAME}.$a
+
+compute         lammps_temp_layers all chunk/atom bin/1d z lower 0.05 units reduced
+fix		        lammps_temp_profile all ave/chunk 10 100 1000 lammps_temp_layers temp file lammps_temp_profile.${NAME}.$a
+
+compute         dens_layers all chunk/atom bin/1d z lower 0.05 units reduced
+fix		        dens_profile all ave/chunk 10 100 1000 dens_layers density/mass file massdens_profile.${NAME}.$a
+
+compute         numdens_layers all chunk/atom bin/1d z lower 0.05 units reduced
+fix		        numdens_profile all ave/chunk 10 100 1000 numdens_layers density/number file numdens_profile.${NAME}.$a
+
+
+
+variable       t       equal step
+variable       T       equal temp
+variable       V       equal vol
+variable       P       equal press
+variable       PotEng  equal pe
+variable       KinEng  equal ke
+variable       TotEng  equal etotal
+variable       Density_ equal density
+variable       xl       equal lx
+variable       yl       equal ly
+variable       zl       equal lz
+
+
+print           "Step Temp Volume Pressure PotEng KinEng TotEng Density x_length y_length z_length" file thermalsim.${NAME}.txt
+fix             PRINT all print 2000 "$t $T $V $P $(v_PotEng) $(v_KinEng) $(v_TotEng) $(v_Density_) $(v_xl) $(v_yl) $(v_zl)" &
+                append thermalsim.${NAME}.txt title ""
+
+#dump           DUMP_5 all custom 1000000 ${NAME}.lammpstrj_5 id type x y z mol
+
+
+
+
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Heat Flux Decomposition <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+variable           cv_l_lower        equal          3*v_unit_length
+variable           cv_l_upper        equal          7*v_unit_length
+variable           cv_r_lower        equal          13*v_unit_length
+variable           cv_r_upper        equal          17*v_unit_length
+
+region           CV_1 block  INF INF INF INF $(v_cv_l_lower) $(v_cv_l_upper)
+group            control_volume_1 dynamic all region CV_1 every 1
+
+region           CV_2 block  INF INF INF INF $(v_cv_r_lower) $(v_cv_r_upper)
+group            control_volume_2 dynamic all region CV_2 every 1
+
+compute          cv_KE all ke/atom
+compute          cv_PE all pe/atom
+
+
+
+compute          Stress_angle all stress/atom NULL angle
+compute          f_ang control_volume_1 heat/flux cv_KE cv_PE Stress_angle
+compute          f_ang_2 control_volume_2 heat/flux cv_KE cv_PE Stress_angle
+
+compute          Stress_angle_centroid all centroid/stress/atom NULL angle
+compute          f_ang_ce control_volume_1 heat/flux cv_KE cv_PE Stress_angle_centroid
+compute          f_ang_ce_2 control_volume_2 heat/flux cv_KE cv_PE Stress_angle_centroid
+
+
+
+compute          Stress_bond all stress/atom NULL bond
+compute          f_bond control_volume_1 heat/flux cv_KE cv_PE Stress_bond
+compute          f_bond_2 control_volume_2 heat/flux cv_KE cv_PE Stress_bond
+
+compute          Stress_bond_centroid all centroid/stress/atom NULL bond
+compute          f_bond_ce control_volume_1 heat/flux cv_KE cv_PE Stress_bond_centroid
+compute          f_bond_ce_2 control_volume_2 heat/flux cv_KE cv_PE Stress_bond_centroid
+
+
+
+compute          Stress_dihedral all stress/atom NULL dihedral
+compute          f_dihed control_volume_1 heat/flux cv_KE cv_PE Stress_dihedral
+compute          f_dihed_2 control_volume_2 heat/flux cv_KE cv_PE Stress_dihedral
+
+compute          Stress_dihedral_centroid all centroid/stress/atom NULL dihedral
+compute          f_dihed_ce control_volume_1 heat/flux cv_KE cv_PE Stress_dihedral_centroid
+compute          f_dihed_ce_2 control_volume_2 heat/flux cv_KE cv_PE Stress_dihedral_centroid
+
+
+
+compute          Stress_improper all stress/atom NULL improper
+compute          f_imp control_volume_1 heat/flux cv_KE cv_PE Stress_improper
+compute          f_imp_2 control_volume_2 heat/flux cv_KE cv_PE Stress_improper
+
+compute          Stress_improper_centroid all centroid/stress/atom NULL improper
+compute          f_imp_ce control_volume_1 heat/flux cv_KE cv_PE Stress_improper_centroid
+compute          f_imp_ce_2 control_volume_2 heat/flux cv_KE cv_PE Stress_improper_centroid
+
+
+
+compute          Stress_pair all stress/atom NULL pair
+compute          f_pair control_volume_1 heat/flux cv_KE cv_PE Stress_pair
+compute          f_pair_2 control_volume_2 heat/flux cv_KE cv_PE Stress_pair
+
+compute          Stress_pair_centroid all stress/atom NULL pair
+compute          f_pair_ce control_volume_1 heat/flux cv_KE cv_PE Stress_pair_centroid
+compute          f_pair_ce_2 control_volume_2 heat/flux cv_KE cv_PE Stress_pair_centroid
+
+
+
+compute          Stress_kspace all stress/atom NULL kspace
+compute          f_kspace control_volume_1 heat/flux cv_KE cv_PE Stress_kspace
+compute          f_kspace_2 control_volume_2 heat/flux cv_KE cv_PE Stress_kspace
+
+
+
+compute          Stress_all all stress/atom NULL virial
+compute          f_all control_volume_1 heat/flux cv_KE cv_PE Stress_all
+compute          f_all_2 control_volume_2 heat/flux cv_KE cv_PE Stress_all
+
+
+
+variable         Jflux_total equal c_f_all[3]/(0.20*vol)
+variable         Jflux_convective equal c_f_all[6]/(0.20*vol)
+variable         Jf_ang equal c_f_ang[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_bond equal c_f_bond[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_dihed equal c_f_dihed[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_imp equal c_f_imp[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_pair equal c_f_pair[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_kspace equal c_f_kspace[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+
+variable         Jflux_total_2 equal c_f_all_2[3]/(0.20*vol)
+variable         Jflux_convective_2 equal c_f_all_2[6]/(0.20*vol)
+variable         Jf_ang_2 equal c_f_ang_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_bond_2 equal c_f_bond_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_dihed_2 equal c_f_dihed_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_imp_2 equal c_f_imp_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_pair_2 equal c_f_pair_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_kspace_2 equal c_f_kspace_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+
+
+
+variable         Jf_ang_ce equal c_f_ang_ce[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_bond_ce equal c_f_bond_ce[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_dihed_ce equal c_f_dihed_ce[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_imp_ce equal c_f_imp_ce[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+variable         Jf_pair_ce equal c_f_pair_ce[3]/(0.20*vol)-c_f_all[6]/(0.20*vol)
+
+variable         Jf_ang_ce_2 equal c_f_ang_ce_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_bond_ce_2 equal c_f_bond_ce_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_dihed_ce_2 equal c_f_dihed_ce_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_imp_ce_2 equal c_f_imp_ce_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+variable         Jf_pair_ce_2 equal c_f_pair_ce_2[3]/(0.20*vol)-c_f_all_2[6]/(0.20*vol)
+
+
+
+#dump            DUMP_5 all custom 1000 ${NAME}.$a.lammpstrj_5 id type x y z mol mass vx vy vz c_cv_KE c_cv_PE
+variable         base_area equal lx*ly
+variable         exchange_rate equal $a
+variable         Jflux_applied equal ${exchange_rate}/(${base_area})
+
+
+
+fix              flux_averaged_one control_volume_1 ave/time 10 1000 10000 v_Jflux_convective v_Jf_ang v_Jf_bond &
+                    v_Jf_dihed v_Jf_pair v_Jf_kspace v_Jflux_total v_Jflux_applied &
+                    ave one file avefluxes_one_left.${NAME}.$a.profile
+
+
+fix              flux_averaged_one_2 control_volume_2 ave/time 10 1000 10000 v_Jflux_convective_2 v_Jf_ang_2 v_Jf_bond_2 &
+                    v_Jf_dihed_2 v_Jf_pair_2 v_Jf_kspace_2 v_Jflux_total_2 v_Jflux_applied &
+                    ave one file avefluxes_one_right.${NAME}.$a.profile
+
+
+fix              flux_averaged_one_ce control_volume_1 ave/time 10 1000 10000 v_Jf_ang_ce v_Jf_bond_ce &
+                    v_Jf_dihed_ce v_Jf_pair_ce v_Jflux_applied &
+                    ave one file avefluxes_one_ce_left.${NAME}.$a.profile
+
+
+fix              flux_averaged_one_ce_imp control_volume_1 ave/time 10 10000 100000 v_Jf_imp_ce v_Jflux_applied &
+                    ave one file avefluxes_one_ce_imp_left.${NAME}.$a.profile
+                    
+
+fix              flux_averaged_one_ce_2 control_volume_2 ave/time 10 1000 10000 v_Jf_ang_ce_2 v_Jf_bond_ce_2 &
+                    v_Jf_dihed_ce_2 v_Jf_pair_ce_2 v_Jflux_applied &
+                    ave one file avefluxes_one_ce_right.${NAME}.$a.profile
+                    
+
+fix              flux_averaged_one_ce_imp_2 control_volume_2 ave/time 10 10000 100000 v_Jf_imp_ce_2  v_Jflux_applied &
+                    ave one file avefluxes_one_ce_imp_right.${NAME}.$a.profile                   
+
+
+
+restart         2000000   restart.${NAME}.$a.restart.1 restart.${NAME}.$a.restart.2
+
+run             ${kappa_calc_run}
+
+
+write_data      restart.${NAME}.final.$a.data
+
+
+run 10
+
+

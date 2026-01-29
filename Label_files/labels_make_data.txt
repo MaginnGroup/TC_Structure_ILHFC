@@ -1,0 +1,12 @@
+R32_emimtfsi_3072_128_1653
+R32_emimtfsi_1088_192_1512
+R32_emimtfsi_598_256_1171
+R32_emimtfsi_320_320_721
+R32_emimtfsi_160_480_293
+R134a_emimtfsi_1294_128_656
+R134a_emimtfsi_1088_192_646
+R134a_emimtfsi_598_256_573
+R134a_emimtfsi_320_320_422
+R134a_emimtfsi_160_480_215
+pure_emimtfsi_nil_300_100
+pure_hmimtfsi_nil_300_100
