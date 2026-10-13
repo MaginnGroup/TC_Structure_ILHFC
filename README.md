@@ -1,8 +1,8 @@
-# Nanostructural Transformations in Ionic Liquid–Hydrofluorocarbon Mixtures and Their Impact on Thermal Conductivity
+# Nanostructural Origins of Anomalous Thermal Conductivity in Ionic Liquid-Hydrofluorocarbon Mixtures
 
 This repository accompanies the research paper
 
-**"Nanostructural Transformations in Ionic Liquid–Hydrofluorocarbon Mixtures and Their Impact on Thermal Conductivity"**
+**"Nanostructural Origins of Anomalous Thermal Conductivity in Ionic Liquid-Hydrofluorocarbon Mixtures"**
 
 ---
 
